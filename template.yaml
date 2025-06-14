@@ -1,0 +1,128 @@
+# template.yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Sentinel detects and triggers the necessary configuration update, ensuring Kamal remains aware and correctly configured for its AWS environment.
+
+Globals:
+  Function:
+    Timeout: 30 # Timeout for Lambda functions
+    MemorySize: 128 # Memory for Lambda functions
+    # Important: Set the runtime to 'provided.al2' (Amazon Linux 2)
+    # as Bref provides the actual PHP runtime via layers.
+    Runtime: provided.al2
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        # environment variables
+        AWS_REGION: us-east-1
+        AWS_EVENT_BUS_NAME: default
+        
+Resources:
+  #1. SQS queue where events will be pushed
+  EC2InstanceStateChangeEventQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: sentinel-ec2-state-change-event-queue
+      MessageRetentionPeriod: 21600 # Six hours
+      VisibilityTimeout: 180 # 3 minutes (should be at least 6x the Lambda function's timeout)
+
+  #2. Eventbridge rule to capture EC2 state change notifications
+  EC2InstanceStateChangeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: EC2InstanceStateChangeToSqsRule
+      Description: "Routes EC2 instance state change notifications to an SQS queue."
+      EventBusName: !Sub '${AWS_EVENT_BUS_NAME}'
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-Change Notification
+        detail:
+          state:
+            - running
+            - terminated
+      Targets:
+        - Id: SQSQueueTarget # Logical ID for the target
+          Arn: !GetAtt EC2InstanceStateChangeEventQueue.Arn # ARN of the SQS queue
+
+  #3. Grant EventBridge permission to send messages to the SQS Queue
+  # This is a resource-based policy on the SQS Queue
+  EC2InstanceStateChangeQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref EC2InstanceStateChangeEventQueue # Reference the SQS queue in #1
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - sqs.SendMessage
+            Resource: !GetAtt EC2InstanceStateChangeEventQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt EC2InstanceStateChangeRule.Arn
+              StringEquals:
+                aws:SourceAccount: !Ref 'AWS::AccountId'
+
+  #4. Define the S3 Bucket
+  # This bucket will be used by the Lambda function to read/write Kamal configuration.
+  SentinelKamalConfigurationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: sentinel-kamal-configuration-file-bucket
+      VersioniningConfiguration:
+        Status: Enabled
+
+  #5. This is the Lambda function that will drive the queue
+  Sentinel:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: . # The entire project directory will be uploaded
+      Handler: src/index.php # Entry point
+      # Link to the Bref PHP runtime layer
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS_REGION}:534081306603:layer:php-84:26" # Use the latest PHP layer ARN for the region
+      Policies:
+        # This policy grants the Lambda function permission to poll (receive/delete) messages from the SQS queue.
+        - SQSPollerPolicy:
+            QueueName: !GetAtt EC2InstanceStateChangeEventQueue.QueueName
+        # Policy to grant read/write access to the S3 bucket.
+        # This uses a custom inline policy for least privilege, targeting only MyDataBucket.
+        - Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - !GetAtt SentinelKamalConfigurationBucket.Arn # Grant access to the bucket itself (for ListBucket)
+              - !Sub "${SentinelKamalConfigurationBucket.Arn}/*" # Grant access to objects within the bucket
+        - AWSLambdaBasicExecutionRole
+
+      Events:
+        SentinelSqsEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt EC2InstanceStateChangeEventQueue.Arn # Reference the ARN of the SQS queue defined above
+            BatchSize: 1 # Number of messages to process per invocation
+    Metadata:
+      BuildMethod: makefile
+
+Outputs:
+  EC2InstanceStateChangeEventQueueURL:
+    Description: "URL of the SQS Queue"
+    Value: !Ref EC2InstanceStateChangeEventQueue
+  EC2InstanceStateChangeEventQueueARN:
+    Description: "ARN of the SQS Queue"
+    Value: !GetAtt EC2InstanceStateChangeEventQueue.Arn
+  SentinelKamalConfigurationBucket:
+    Description: "Name of the S3 Bucket for data operations"
+    Value: !Ref SentinelKamalConfigurationBucket
+  SentinelFunctionArn:
+    Description: "ARN of the Lambda Function"
+    Value: !GetAtt Sentinel.Arn

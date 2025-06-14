@@ -1,0 +1,43 @@
+{
+    "name": "cloudfactorhq/sentinel",
+    "description": "Sentinel detects and triggers the necessary configuration update, ensuring Kamal remains aware and correctly configured for its AWS environment.",
+    "keywords": [
+        "sentinel",
+        "kamal",
+        "deploy",
+        "lambda",
+        "serverless",
+        "aws",
+        "eventbridge"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Ntim Yeboah",
+            "email": "ntimobedyeboah@gmail.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "bref/bref": "^2.4"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "CloudFactorHQ\\Sentinel\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CloudFactorHQ\\Sentinel\\Tests\\": "tests"
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
