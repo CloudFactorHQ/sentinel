@@ -19,6 +19,7 @@
         }
     ],
     "require": {
+        "aws/aws-sdk-php": "^3.348",
         "bref/bref": "^2.4"
     },
     "require-dev": {

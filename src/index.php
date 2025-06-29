@@ -3,26 +3,44 @@
 require __DIR__ . '/../vendor/autoload.php';
 
 use Bref\Context\Context;
-use Bref\Event\Sqs\SqsEvent;
-use Bref\Event\Sqs\SqsHandler;
+use Bref\Event\EventBridge\EventBridgeEvent;
+use Bref\Event\EventBridge\EventBridgeHandler;
+use CloudFactorHQ\Sentinel\Ec2\Ec2Provider;
+use CloudFactorHQ\Sentinel\Event\InstanceStateChange;
 
-class SentinelSqsConsumerHandler extends SqsHandler
+class EventHandler extends EventBridgeHandler
 {
-    /**
-     * Handles an SQS event. This method is called by Bref when the Lambda function
-     * is invoked with SQS messages.
-     *
-     * @param SqsEvent $event The SQS event object containing messages.
-     * @param Context $context The Lambda context object, providing runtime information.
-     */
-    public function handleSqs(SqsEvent $event, Context $context): void
+    public function handleEventBridge(EventBridgeEvent $event, Context $context): void
     {
-        // Get all records (messages) from the SQS event batch
-        $records = $event->getRecords();
+        //1. On Event
+        //---------------------------
+        //1. Get the event - InstanceStateChange::capture($event)
+        //2. Validate the event
+        $stateChange = InstanceStateChange::capture($event);
 
-        echo "Received SQS batch with " . count($records) . " messages.\n";
+        //2. On EC2 - Get running instances' ip
+        //----------------------------------
+        //1. Get the instance Id
+        //2. Make the request to get the instance's public ip address
+        $instances = (new Ec2Provider())->getRunningInstances($stateChange);
+
+        if (empty($instances)) {
+            exit;
+        }
+
+        $instanceIPAddresses = array_map(function ($instance) {
+            return $instance->getPublicIPAddress();
+        }, $instances);
+
+        print_r($instanceIPAddresses);
+
+        // Make a request to read the Kamal configuration file from S3
+        //On S3 - The bucket
+        //-------------------
+        //1. Make a call to get the kamal configuration file
+        //2. Read the yaml file and set the public ip
+        //3. Serialize and push a class that contains the details of the configuration file to SQS
     }
 }
 
-// Instantiate and return the handler to Bref.
-return new SentinelSqsConsumerHandler();
+return new EventHandler();
