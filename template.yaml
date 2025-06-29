@@ -15,7 +15,6 @@ Globals:
     Environment:
       Variables:
         # environment variables
-        AWS_REGION: us-east-1
         AWS_EVENT_BUS_NAME: default
         BREF_LAYER_AWS_ACCOUNT_ID: 534081306603
         
@@ -25,8 +24,6 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: sentinel-kamal-configuration-file-bucket
-      VersioniningConfiguration:
-        Status: Enabled
 
   #2. This is the Lambda function that will be trigger when the EC2 state change event happens
   SentinelKamalConfigurationUpdater:
@@ -36,7 +33,7 @@ Resources:
       Handler: src/index.php # Entry point
       # Link to the Bref PHP runtime layer
       Layers:
-        - !Sub "arn:aws:lambda:${AWS_REGION}:${BREF_LAYER_AWS_ACCOUNT_ID}:layer:php-84:26" # Use the latest PHP layer ARN for the region
+        - !Sub "arn:aws:lambda:us-east-1:534081306603:layer:php-84:26" # Use the latest PHP layer ARN for the region
       Policies:
         # Policy to grant the Lambda function read/write access to the S3 bucket.
         # This is an identity-based policy attached to the Lambda's execution role.
@@ -48,6 +45,14 @@ Resources:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt SentinelKamalConfigurationUpdateQueue.QueueName
 
+        # Specify policy to allow lambda function to get the list
+        # of instance in the aws account
+        - Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeInstances
+            Resource: "*"
+
         - AWSLambdaBasicExecutionRole
     Metadata:
       BuildMethod: makefile
@@ -56,23 +61,33 @@ Resources:
   EC2InstanceStateChangeRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: EC2InstanceStateChangeToSqsRule
-      Description: "Routes EC2 instance state change notifications to an SQS queue."
-      EventBusName: !Sub '${AWS_EVENT_BUS_NAME}'
+      Name: EC2InstanceStateChangeRule
+      Description: "Trigger SentinelKamalConfigurationUpdater Lambda function to respond to EC2 state changes"
+      EventBusName: default
       EventPattern:
         source:
           - aws.ec2
         detail-type:
-          - EC2 Instance State-Change Notification
+          - EC2 Instance State-change Notification
         detail:
           state:
             - running
             - terminated
+      State: ENABLED
       Targets:
         - Id: SentinelKamalConfigurationUpdater # Logical ID for the target
           Arn: !GetAtt SentinelKamalConfigurationUpdater.Arn # ARN of lambda function
 
-  #4. SQS queue where Kamal configuration file update job will be queued
+  #4. Give permission to Eventbridge to invoke SentinelKamalConfigurationUpdater
+  SentinelKamalConfigurationUpdaterPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt SentinelKamalConfigurationUpdater.Arn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EC2InstanceStateChangeRule.Arn
+
+  #5. SQS queue where Kamal configuration file update job will be queued
   SentinelKamalConfigurationUpdateQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -80,7 +95,7 @@ Resources:
       MessageRetentionPeriod: 21600 # Six hours
       VisibilityTimeout: 180 # 3 minutes (should be at least 6x the Lambda function's timeout)
 
-  #5. Lambda function to file a PR to a configured source control
+  #6. Lambda function to file a PR to a configured source control
   # This lambda function is configured to poll messages from the
   # SentinelKamalConfigurationUpdateQueue. It sends a PR to the configured
   # source control repository.
@@ -91,7 +106,7 @@ Resources:
       Handler: src/index.php # Entry point
       # Link to the Bref PHP runtime layer
       Layers:
-        - !Sub "arn:aws:lambda:${AWS_REGION}:${BREF_LAYER_AWS_ACCOUNT_ID}:layer:php-84:26" # Use the latest PHP layer ARN for the region
+        - !Sub "arn:aws:lambda:us-east-1:534081306603:layer:php-84:26" # Use the latest PHP layer ARN for the region
       Policies:
         # This policy grants the Lambda function permission to poll messages from the SQS queue.
         - SQSPollerPolicy:
