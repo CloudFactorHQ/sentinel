@@ -2,7 +2,7 @@
 
 namespace CloudFactorHQ\Sentinel\Ec2;
 
-class Ec2Instance
+class Instance
 {
     private string $publicIPAddress;
 

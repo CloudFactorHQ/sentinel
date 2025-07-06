@@ -3,44 +3,67 @@
 require __DIR__ . '/../vendor/autoload.php';
 
 use Bref\Context\Context;
-use Bref\Event\EventBridge\EventBridgeEvent;
-use Bref\Event\EventBridge\EventBridgeHandler;
-use CloudFactorHQ\Sentinel\Ec2\Ec2Provider;
-use CloudFactorHQ\Sentinel\Event\InstanceStateChange;
+use Bref\Event\Sqs\SqsEvent;
+use Bref\Event\Sqs\SqsHandler;
+use Bref\Event\Sqs\SqsRecord;
+use CloudFactorHQ\Sentinel\Ec2\Service as Ec2Service;
+use CloudFactorHQ\Sentinel\S3Service;
+use CloudFactorHQ\Sentinel\InstanceStateChangeEvent;
 
-class EventHandler extends EventBridgeHandler
+class SentinelKamalConfigurationUpdater extends SqsHandler
 {
-    public function handleEventBridge(EventBridgeEvent $event, Context $context): void
+    /**
+     * Handles an SQS event. This method is called by Bref when the Lambda function
+     * is invoked with SQS messages.
+     *
+     * @param SqsEvent $event The SQS event object containing messages.
+     * @param Context $context The Lambda context object, providing runtime information.
+     */
+    public function handleSqs(SqsEvent $event, Context $context): void
     {
-        //1. On Event
-        //---------------------------
-        //1. Get the event - InstanceStateChange::capture($event)
-        //2. Validate the event
-        $stateChange = InstanceStateChange::capture($event);
+        $message = $event->getRecords()[0];
 
-        //2. On EC2 - Get running instances' ip
-        //----------------------------------
-        //1. Get the instance Id
-        //2. Make the request to get the instance's public ip address
-        $instances = (new Ec2Provider())->getRunningInstances($stateChange);
+        //1. Validate the received event
+        $this->validate($message);
 
-        if (empty($instances)) {
-            exit;
+        //2. Get running ec2 instance ip addresses
+        $stateChangeEvent = InstanceStateChangeEvent::capture($message->getBody());
+        $instances = (new Ec2Service())->getRunningInstances($stateChangeEvent);
+
+        if (count($instances) < 1) {
+            //Log exception and exit gracefully
+
         }
 
         $instanceIPAddresses = array_map(function ($instance) {
             return $instance->getPublicIPAddress();
         }, $instances);
 
-        print_r($instanceIPAddresses);
+        if (count($instanceIPAddresses) < 1) {
+            // Log exception and exit gracefully
 
-        // Make a request to read the Kamal configuration file from S3
-        //On S3 - The bucket
-        //-------------------
-        //1. Make a call to get the kamal configuration file
-        //2. Read the yaml file and set the public ip
-        //3. Serialize and push a class that contains the details of the configuration file to SQS
+        }
+
+        //3. Update IP addresses on the Kamal configuration file
+        $configurationFile = (new S3Service())->getConfigurationFile();
+
+        $configurationFile->updateWebServersIpAddress($instanceIPAddresses);
+
+        print_r(json_encode($configurationFile->toArray()));
+    }
+
+    private function validate(SqsRecord $message)
+    {
+        $parts = explode('/', getenv('SQS_QUEUE_URL'));
+        $queueName = $parts[count($parts) - 1];
+
+        // Do not process event if not from our sqs queue
+        if ($message->getQueueName() !== $queueName) {
+            // Log exceptions and exit gracefully
+
+        }
     }
 }
 
-return new EventHandler();
+// Instantiate and return the handler to Bref.
+return new SentinelKamalConfigurationUpdater();

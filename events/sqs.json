@@ -1,0 +1,20 @@
+{
+    "Records": [
+        {
+            "messageId": "e078a146-0338-4799-a85f-fb08ef25cb12",
+            "receiptHandle": "AQEB2lmtXGyPwxEkslRnlb4Q9+SMOSVi3T7IKCWf+EiqnTLvv2jjnLkz83RK8IzvMgXwwaOXm4yjPwVZcWlpRDnFKUo9dpPyh9S49y+K7s3qkpUSNJXnyar7gcL2LE1fb7yCMJnEy1U0fejTrTkFaN2gVMLo3pezh2ri7JRaD/qun/DPj00Yh4GiOrMRjZvaSic2Uh0DDFT1ffLX02R69nStvoG/xFQAdwo2DGxflYlnFwQlXyO0xdVr3zDic1ygLTdpKO6Ijl7kCEvcByFlop0JYv0a356LvHg2x3G251jVpcXjJ3y/0MXG1DTv2CC5zex8S6LbeuoPL+ipHq5ssG+IyXXDBwnNuyLXLwxni4YndbcWmC7x8hqsfuWAhbGoGZq19B0dwLUy2cjaQIOA5KnbDZYU0/152gqkAorZ/jK1O2pW6ZiJco6yGK7PM+B+bYQD",
+            "body": "{\"version\":\"0\",\"id\":\"f16784c5-5bb5-80c2-0916-cdc32fc64aec\",\"detail-type\":\"EC2 Instance State-change Notification\",\"source\":\"aws.ec2\",\"account\":\"711387121306\",\"time\":\"2025-07-06T08:49:40Z\",\"region\":\"us-east-1\",\"resources\":[\"arn:aws:ec2:us-east-1:711387121306:instance/i-096a539616953cc60\"],\"detail\":{\"instance-id\":\"i-096a539616953cc60\",\"state\":\"terminated\"}}",
+            "attributes": {
+                "ApproximateReceiveCount": "1",
+                "SentTimestamp": "1751791780674",
+                "SenderId": "AIDAJXNJGGKNS7OSV23OI",
+                "ApproximateFirstReceiveTimestamp": "1751791780676"
+            },
+            "messageAttributes": [],
+            "md5OfBody": "3610e17c480b3263fbb374aa585839fe",
+            "eventSource": "aws:sqs",
+            "eventSourceARN": "arn:aws:sqs:us-east-1:711387121306:Sentinel-SentinelEC2InstanceStateChangeEventQueue-Je0fChLePbXf",
+            "awsRegion": "us-east-1"
+        }
+    ]
+}

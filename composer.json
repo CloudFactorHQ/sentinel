@@ -20,7 +20,8 @@
     ],
     "require": {
         "aws/aws-sdk-php": "^3.348",
-        "bref/bref": "^2.4"
+        "bref/bref": "^2.4",
+        "bref/extra-php-extensions": "^1.8"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5"

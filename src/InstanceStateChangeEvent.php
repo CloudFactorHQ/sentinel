@@ -1,40 +1,40 @@
 <?php declare(strict_types=1);
 
-namespace CloudFactorHQ\Sentinel\Event;
+namespace CloudFactorHQ\Sentinel;
 
 use Bref\Event\EventBridge\EventBridgeEvent;
 use RuntimeException;
 
-class InstanceStateChange
+class InstanceStateChangeEvent
 {
-    private EventBridgeEvent $event;
+    private $body;
 
-    protected function __construct(EventBridgeEvent $event)
+    protected function __construct(string $body)
     {
-        $this->validate($event);
+        $this->body = json_decode($body, true);
 
-        $this->event = $event;
+        $this->validate($this->body);
     }
 
     /**
      * Capture event from Eventbridge.
      *
-     * @param EventBridgeEvent $event
+     * @param string $body
      * @return static
      */
-    public static function capture(EventBridgeEvent $event): static
+    public static function capture(string $body): static
     {
-        return new static($event);
+        return new static($body);
     }
 
     /**
      * The ec2 state change event
      *
-     * @return EventBridgeEvent
+     * @return array
      */
-    public function event(): EventBridgeEvent
+    public function event(): array
     {
-        return $this->event;
+        return $this->body;
     }
 
     /**
@@ -44,7 +44,7 @@ class InstanceStateChange
      */
     public function getInstanceId(): string
     {
-        return $this->event->getDetail()['instance-id'];
+        return $this->body['detail']['instance-id'];
     }
 
     /**
@@ -54,7 +54,7 @@ class InstanceStateChange
      */
     public function getState(): string
     {
-        return $this->event->getDetail()['state'];
+        return $this->body['detail']['state'];
     }
 
     /**
@@ -63,9 +63,9 @@ class InstanceStateChange
      * @param EventBridgeEvent $event
      * @return void
      */
-    protected function validate(EventBridgeEvent $event): void
+    protected function validate(array $body): void
     {
-        if ($event->getSource() !== 'aws.ec2' || $event->getDetailType() !== 'EC2 Instance State-change Notification') {
+        if ($body['source'] !== 'aws.ec2' || $body['detail-type'] !== 'EC2 Instance State-change Notification') {
             throw new RuntimeException('Not the expected event. Cannot proceed.');
         }
     }

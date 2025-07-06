@@ -3,9 +3,9 @@
 namespace CloudFactorHQ\Sentinel\Ec2;
 
 use Aws\Ec2\Ec2Client;
-use CloudFactorHQ\Sentinel\Event\InstanceStateChange;
+use CloudFactorHQ\Sentinel\InstanceStateChangeEvent;
 
-class Ec2Provider
+class Service
 {
     private Ec2Client $ec2Client;
 
@@ -20,10 +20,10 @@ class Ec2Provider
     /**
      * Return all the running instances.
      *
-     * @param InstanceStateChange $instanceStateChange
+     * @param InstanceStateChangeEvent $instanceStateChangeEvent
      * @return array
      */
-    public function getRunningInstances(InstanceStateChange $instanceStateChange): array
+    public function getRunningInstances(InstanceStateChangeEvent $instanceStateChangeEvent): array
     {
         $instances = [];
 
@@ -42,12 +42,12 @@ class Ec2Provider
             return $instances;
         }
 
-        if (empty($response['Reservations'])) {
+        if (count($response['Reservations']) < 1) {
             return $instances;
         } 
 
         foreach ($response['Reservations'] as $reservation) {
-            $instances[] = new Ec2Instance($reservation['Instances'][0]);
+            $instances[] = new Instance($reservation['Instances'][0]);
         }
 
         return $instances;

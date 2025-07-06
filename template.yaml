@@ -19,50 +19,19 @@ Globals:
         BREF_LAYER_AWS_ACCOUNT_ID: 534081306603
         
 Resources:
-  #1. Define the S3 Bucket - This bucket will be used by the Lambda function to read/write Kamal configuration.
-  SentinelKamalConfigurationBucket:
-    Type: AWS::S3::Bucket
+  #1. SQS queue where events will be pushed
+  SentinelEC2InstanceStateChangeEventQueue:
+    Type: AWS::SQS::Queue
     Properties:
-      BucketName: sentinel-kamal-configuration-file-bucket
+      MessageRetentionPeriod: 21600 # Six hours
+      VisibilityTimeout: 180 # 3 minutes (should be at least 6x the Lambda function's timeout)
 
-  #2. This is the Lambda function that will be trigger when the EC2 state change event happens
-  SentinelKamalConfigurationUpdater:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: . # The entire project directory will be uploaded
-      Handler: src/index.php # Entry point
-      # Link to the Bref PHP runtime layer
-      Layers:
-        - !Sub "arn:aws:lambda:us-east-1:534081306603:layer:php-84:26" # Use the latest PHP layer ARN for the region
-      Policies:
-        # Policy to grant the Lambda function read/write access to the S3 bucket.
-        # This is an identity-based policy attached to the Lambda's execution role.
-        - S3CrudPolicy: # SAM's managed policy for S3 Read/Write/List
-            BucketName: !Ref SentinelKamalConfigurationBucket
-
-        # Policy to grant the Lambda function permission to send messages to the SQS queue.
-        # This is an identity-based policy attached to the Lambda's execution role.
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt SentinelKamalConfigurationUpdateQueue.QueueName
-
-        # Specify policy to allow lambda function to get the list
-        # of instance in the aws account
-        - Statement:
-          - Effect: Allow
-            Action:
-              - ec2:DescribeInstances
-            Resource: "*"
-
-        - AWSLambdaBasicExecutionRole
-    Metadata:
-      BuildMethod: makefile
-
-  #3. Eventbridge rule to capture EC2 state change notifications
-  EC2InstanceStateChangeRule:
+  #2. Eventbridge rule to capture EC2 state change notifications
+  SentinelEC2InstanceStateChangeRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: EC2InstanceStateChangeRule
-      Description: "Trigger SentinelKamalConfigurationUpdater Lambda function to respond to EC2 state changes"
+      Name: SentinelEC2InstanceStateChangeRule
+      Description: "Rule to detect instance state changes"
       EventBusName: default
       EventPattern:
         source:
@@ -75,31 +44,38 @@ Resources:
             - terminated
       State: ENABLED
       Targets:
-        - Id: SentinelKamalConfigurationUpdater # Logical ID for the target
-          Arn: !GetAtt SentinelKamalConfigurationUpdater.Arn # ARN of lambda function
+        - Id: SentinelEC2InstanceStateChangeEventQueue # Logical ID for the target
+          Arn: !GetAtt SentinelEC2InstanceStateChangeEventQueue.Arn # ARN of the SQS queue
 
-  #4. Give permission to Eventbridge to invoke SentinelKamalConfigurationUpdater
-  SentinelKamalConfigurationUpdaterPermission:
-    Type: AWS::Lambda::Permission
+  #3. Grant EventBridge permission to send messages to the SQS Queue
+  # This is a resource-based policy on the SQS Queue
+  SentinelEC2InstanceStateChangeQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
     Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !GetAtt SentinelKamalConfigurationUpdater.Arn
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt EC2InstanceStateChangeRule.Arn
+      Queues:
+        - !Ref SentinelEC2InstanceStateChangeEventQueue # Reference the SQS queue in #1
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt SentinelEC2InstanceStateChangeEventQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt SentinelEC2InstanceStateChangeRule.Arn
+              StringEquals:
+                aws:SourceAccount: !Ref 'AWS::AccountId'
 
-  #5. SQS queue where Kamal configuration file update job will be queued
-  SentinelKamalConfigurationUpdateQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: sentinel-kamal-configuration-update-queue
-      MessageRetentionPeriod: 21600 # Six hours
-      VisibilityTimeout: 180 # 3 minutes (should be at least 6x the Lambda function's timeout)
+  #5. Define the S3 Bucket - This bucket will be used by the Lambda function to read/write Kamal configuration.
+  SentinelKamalConfigurationBucket:
+    Type: AWS::S3::Bucket
 
-  #6. Lambda function to file a PR to a configured source control
-  # This lambda function is configured to poll messages from the
-  # SentinelKamalConfigurationUpdateQueue. It sends a PR to the configured
-  # source control repository.
-  SentinelKamalConfigurationPullRequest:
+  #2. This is the Lambda function that will be trigger when the EC2 state change event happens.
+  # This Lambda function will drive the queue.
+  SentinelKamalConfigurationUpdater:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: . # The entire project directory will be uploaded
@@ -107,23 +83,52 @@ Resources:
       # Link to the Bref PHP runtime layer
       Layers:
         - !Sub "arn:aws:lambda:us-east-1:534081306603:layer:php-84:26" # Use the latest PHP layer ARN for the region
+        - !Sub "arn:aws:lambda:us-east-1:403367587399:layer:yaml-php-84:3"
+      Environment:
+        Variables:
+          CONFIGURATION_FILE_KEY_NAME: config/deploy.yml
+          S3_BUCKET_NAME: !Ref SentinelKamalConfigurationBucket
+          SQS_QUEUE_URL: !Ref SentinelEC2InstanceStateChangeEventQueue
       Policies:
-        # This policy grants the Lambda function permission to poll messages from the SQS queue.
+        # Policy to grant the Lambda function read/write access to the S3 bucket.
+        # This is an identity-based policy attached to the Lambda's execution role.
+        - S3CrudPolicy: # SAM's managed policy for S3 Read/Write/List
+            BucketName: !Ref SentinelKamalConfigurationBucket
+
+        # This policy grants the Lambda function permission to poll (receive/delete) messages from the SQS queue.
         - SQSPollerPolicy:
-            QueueName: !GetAtt SentinelKamalConfigurationUpdateQueue.QueueName
+            QueueName: !GetAtt SentinelEC2InstanceStateChangeEventQueue.QueueName
+
+        # Specify policy to allow lambda function to get the list
+        # of instance in the aws account
+        - Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeInstances
+            Resource: "*"
+
+        - AWSLambdaBasicExecutionRole
+
       Events:
         SentinelSqsEvent:
           Type: SQS
           Properties:
-            Queue: !GetAtt SentinelKamalConfigurationUpdateQueue.Arn # Reference the ARN of the SQS queue defined above
+            Queue: !GetAtt SentinelEC2InstanceStateChangeEventQueue.Arn # Reference the ARN of the SQS queue defined in #1
             BatchSize: 1 # Number of messages to process per invocation
+
     Metadata:
       BuildMethod: makefile
 
 Outputs:
+  SentinelEC2InstanceStateChangeEventQueueURL:
+    Description: "URL of the SQS Queue"
+    Value: !Ref SentinelEC2InstanceStateChangeEventQueue
+  SentinelEC2InstanceStateChangeEventQueueARN:
+    Description: "ARN of the SQS Queue"
+    Value: !GetAtt SentinelEC2InstanceStateChangeEventQueue.Arn
+  SentinelKamalConfigurationBucket:
+    Description: "Name of the S3 Bucket for data operations"
+    Value: !Ref SentinelKamalConfigurationBucket
   SentinelKamalConfigurationUpdaterArn:
-    Description: "ARN of the SentinelKamalConfigurationUpdater function"
+    Description: "ARN of the Lambda Function"
     Value: !GetAtt SentinelKamalConfigurationUpdater.Arn
-  SentinelKamalConfigurationPullRequestArn:
-    Description: "ARN of SentinelKamalConfigurationPullRequest function"
-    Value: !GetAtt SentinelKamalConfigurationPullRequest.Arn
