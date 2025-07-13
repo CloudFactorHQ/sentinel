@@ -50,6 +50,11 @@ class SentinelKamalConfigurationUpdater extends SqsHandler
         $configurationFile->updateWebServersIpAddress($instanceIPAddresses);
 
         print_r(json_encode($configurationFile->toArray()));
+
+        //1. Set the configure SCM token in template.md, this would be read from the env file
+        //2. Will support Multiple SCM
+        //3. Sends a PR request containing the content of the updated Kamal configuration file
+        //4. Handle errors and exit gracefully
     }
 
     private function validate(SqsRecord $message)
