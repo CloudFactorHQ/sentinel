@@ -1,2 +1,8 @@
 vendor
 .aws-sam
+.env
+.phpunit.cache/
+src/running_instance.php
+src/running_instances3.php
+src/terminated_instance.php
+src/indexx.php

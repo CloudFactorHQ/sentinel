@@ -9,6 +9,7 @@ use Bref\Event\Sqs\SqsRecord;
 use CloudFactorHQ\Sentinel\Ec2\Service as Ec2Service;
 use CloudFactorHQ\Sentinel\S3Service;
 use CloudFactorHQ\Sentinel\InstanceStateChangeEvent;
+use CloudFactorHQ\Sentinel\Vcs\VcsManager as Vcs;
 
 class SentinelKamalConfigurationUpdater extends SqsHandler
 {
@@ -51,10 +52,9 @@ class SentinelKamalConfigurationUpdater extends SqsHandler
 
         print_r(json_encode($configurationFile->toArray()));
 
-        //1. Set the configure SCM token in template.md, this would be read from the env file
-        //2. Will support Multiple SCM
-        //3. Sends a PR request containing the content of the updated Kamal configuration file
-        //4. Handle errors and exit gracefully
+        //1. Sends a PR request containing the content of the updated Kamal configuration file
+        //2. Handle errors and exit gracefully
+        (new Vcs())->filePullRequest($configurationFile);
     }
 
     private function validate(SqsRecord $message)
